@@ -20,6 +20,11 @@ func addMachineDrivers(management *config.ManagementContext) error {
 	if err := addMachineDriver("exoscale", "local://", "", []string{"api.exoscale.ch"}, false, true, management); err != nil {
 		return err
 	}
+
+	if err := addMachineDriver("oci", "local://", "", nil, true, true, management); err != nil {
+		return err
+	}
+
 	if err := addMachineDriver("openstack", "local://", "", nil, false, true, management); err != nil {
 		return err
 	}

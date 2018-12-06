@@ -1,0 +1,342 @@
+package helm
+
+import (
+	"archive/tar"
+	"compress/gzip"
+	"crypto/md5"
+	"encoding/base64"
+	"encoding/binary"
+	"encoding/hex"
+	"io"
+	"io/ioutil"
+	"net"
+	"net/http"
+	"net/url"
+	"os"
+	"path"
+	"path/filepath"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/blang/semver"
+	"github.com/pkg/errors"
+	"github.com/rancher/norman/controller"
+	"github.com/rancher/types/apis/management.cattle.io/v3"
+	"github.com/sirupsen/logrus"
+	"gopkg.in/yaml.v2"
+)
+
+var httpTimeout = time.Second * 30
+
+var httpClient = &http.Client{
+	Timeout: httpTimeout,
+}
+
+// request makes http request
+func request(pathURL, method, username, password string) (*http.Response, error) {
+	baseEndpoint, err := url.Parse(pathURL)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(username) > 0 && len(password) > 0 {
+		baseEndpoint.User = url.UserPassword(username, password)
+	}
+
+	req, err := http.NewRequest(method, baseEndpoint.String(), nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := httpClient.Do(req)
+
+	return resp, err
+}
+
+// DownloadIndex fetchs helm catalog index
+func DownloadIndex(indexURL, username, password string) (*RepoIndex, error) {
+	indexURL = strings.TrimSuffix(indexURL, "/")
+	indexURL = indexURL + "/index.yaml"
+	resp, err := request(indexURL, "GET", username, password)
+	if err != nil {
+		if e, ok := err.(net.Error); ok && e.Timeout() {
+			return nil, errors.Errorf("Timeout in HTTP GET to [%s], did not respond in %s", indexURL, httpTimeout)
+		}
+		return nil, errors.Errorf("Error in HTTP GET to [%s], error: %s", indexURL, err)
+	}
+	defer resp.Body.Close()
+
+	// only return forgot error if status code is unauthorized.
+	if resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusUnauthorized {
+		return nil, &controller.ForgetError{Err: errors.Errorf("Unexpected HTTP status code %d from [%s], expected 200", resp.StatusCode, indexURL)}
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.Errorf("Unexpected HTTP status code %d from [%s], expected 200", resp.StatusCode, indexURL)
+	}
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return nil, errors.Errorf("Error while reading response from [%s], error: %s", indexURL, err)
+	}
+
+	sum := md5.Sum(body)
+	hash := hex.EncodeToString(sum[:])
+
+	helmRepoIndex := &RepoIndex{
+		IndexFile: &IndexFile{},
+		Hash:      hash,
+	}
+	err = yaml.Unmarshal(body, helmRepoIndex.IndexFile)
+	if err != nil {
+		logrus.Debugf("Error while parsing response from [%s], error: %s. Response: %s", indexURL, err, body)
+		return nil, errors.Errorf("Error while parsing response from [%s], error: %s", indexURL, err)
+	}
+	return helmRepoIndex, nil
+}
+
+func SaveIndex(index *RepoIndex, repoPath string) error {
+	fileBytes, err := yaml.Marshal(index.IndexFile)
+	if err != nil {
+		return err
+	}
+
+	indexPath := path.Join(repoPath, "index.yaml")
+	return ioutil.WriteFile(indexPath, fileBytes, 0755)
+}
+
+func LoadIndex(repoPath string) (*RepoIndex, error) {
+	indexPath := path.Join(repoPath, "index.yaml")
+
+	body, err := ioutil.ReadFile(indexPath)
+	if os.IsNotExist(err) {
+		return buildIndex(repoPath)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	sum := md5.Sum(body)
+	hash := hex.EncodeToString(sum[:])
+
+	helmRepoIndex := &RepoIndex{
+		IndexFile: &IndexFile{},
+		Hash:      hash,
+	}
+	return helmRepoIndex, yaml.Unmarshal(body, helmRepoIndex.IndexFile)
+}
+
+// FetchTgz fetchs artifacts from helm catalog
+func FetchTgz(url, username, password string) ([]v3.File, error) {
+	var files []v3.File
+
+	logrus.Debugf("Fetching file %s", url)
+	resp, err := request(url, "GET", username, password)
+	if err != nil {
+		return nil, errors.Errorf("Error in HTTP GET of [%s], error: %s", url, err)
+	}
+	defer resp.Body.Close()
+
+	gzf, err := gzip.NewReader(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	defer gzf.Close()
+
+	tarReader := tar.NewReader(gzf)
+	for {
+		header, err := tarReader.Next()
+		if err == io.EOF {
+			break
+		}
+
+		if err != nil {
+			return nil, err
+		}
+
+		switch header.Typeflag {
+		case tar.TypeDir:
+			continue
+		case tar.TypeReg:
+			fallthrough
+		case tar.TypeRegA:
+			name := header.Name
+			contents, err := ioutil.ReadAll(tarReader)
+			if err != nil {
+				return nil, err
+			}
+			files = append(files, v3.File{
+				Name:     name,
+				Contents: string(contents),
+			})
+		}
+	}
+
+	return files, nil
+}
+
+func FetchFiles(version *ChartVersion, urls []string, username, password string) ([]v3.File, error) {
+	if len(urls) == 0 {
+		return nil, nil
+	}
+
+	var files []v3.File
+	for _, url := range urls {
+		if strings.HasPrefix(url, "file://") {
+			newFile, err := LoadFile(version, strings.TrimPrefix(url, "file://"))
+			if err != nil {
+				return nil, err
+			}
+			files = append(files, *newFile)
+			continue
+		}
+
+		newFiles, err := FetchTgz(url, username, password)
+		if err != nil {
+			return nil, err
+		}
+		files = append(files, newFiles...)
+	}
+	return files, nil
+}
+
+func LoadFile(version *ChartVersion, path string) (*v3.File, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+
+	data, err := ioutil.ReadAll(f)
+	if err != nil {
+		return nil, err
+	}
+
+	return &v3.File{
+		Name:     filepath.Join(version.Name, strings.TrimPrefix(f.Name(), version.Dir+"/")),
+		Contents: string(data),
+	}, nil
+}
+
+func buildIndex(repoPath string) (*RepoIndex, error) {
+	index := &RepoIndex{
+		IndexFile: &IndexFile{
+			Entries: map[string]ChartVersions{},
+		},
+	}
+
+	filepath.Walk(repoPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if info.IsDir() {
+			return nil
+		}
+
+		if !strings.EqualFold(info.Name(), "Chart.yaml") {
+			return nil
+		}
+
+		version := &ChartVersion{}
+		content, err := ioutil.ReadFile(path)
+		if err != nil {
+			return err
+		}
+
+		if err := yaml.Unmarshal(content, version); err != nil {
+			return err
+		}
+
+		digest := md5.New()
+		version.Dir = filepath.Dir(path)
+		filepath.Walk(version.Dir, func(path string, info os.FileInfo, err error) error {
+			if err != nil || info.IsDir() {
+				return err
+			}
+
+			version.URLs = append(version.URLs, "file://"+path)
+
+			digest.Write([]byte(path))
+
+			b := make([]byte, 8)
+			binary.LittleEndian.PutUint64(b, uint64(info.Size()))
+			digest.Write(b)
+
+			binary.LittleEndian.PutUint64(b, uint64(info.ModTime().Second()))
+			digest.Write(b)
+
+			return nil
+		})
+
+		version.Digest = hex.EncodeToString(digest.Sum(nil))
+		index.IndexFile.Entries[version.Name] = append(index.IndexFile.Entries[version.Name], version)
+
+		return filepath.SkipDir
+	})
+
+	for _, versions := range index.IndexFile.Entries {
+		sort.Slice(versions, func(i, j int) bool {
+			left, err := semver.ParseTolerant(versions[i].Version)
+			if err != nil {
+				return false
+			}
+
+			right, err := semver.ParseTolerant(versions[j].Version)
+			if err != nil {
+				return false
+			}
+
+			// reverse sort
+			return right.LT(left)
+		})
+	}
+
+	return index, nil
+}
+
+func iconFromFile(versions ChartVersions) (string, string, error) {
+	for _, version := range versions {
+		if version.Dir == "" || version.Icon == "" {
+			continue
+		}
+
+		filename := filepath.Base(version.Icon)
+		iconFile := filepath.Join(filepath.Dir(version.Dir), filename)
+
+		bytes, err := ioutil.ReadFile(iconFile)
+		if err == nil {
+			return base64.StdEncoding.EncodeToString(bytes), filename, nil
+		}
+	}
+
+	return "", "", os.ErrNotExist
+}
+
+func Icon(versions ChartVersions) (string, string, error) {
+	data, file, err := iconFromFile(versions)
+	if err == nil {
+		return data, file, nil
+	}
+
+	if len(versions) == 0 || versions[0].Icon == "" {
+		return "", "", nil
+	}
+
+	url := versions[0].Icon
+
+	resp, err := httpClient.Get(url)
+	if err != nil {
+		return "", "", errors.Errorf("Error in HTTP GET of [%s], error: %s", url, err)
+	}
+
+	body, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return "", "", err
+	}
+
+	parts := strings.Split(url, "/")
+	iconFilename := parts[len(parts)-1]
+	iconData := base64.StdEncoding.EncodeToString(body)
+
+	return iconData, iconFilename, nil
+}

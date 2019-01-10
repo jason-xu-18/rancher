@@ -212,7 +212,7 @@ func getAuthToken(userContext *config.UserContext, appName, namespace string) (s
 	return string(secret.Data["token"]), nil
 }
 
-func parseMetricParams(userContext *config.UserContext, resourceType, clusterName string, metricParams map[string]string) (map[string]string, error) {
+func parseMetricParams(userContext *config.UserContext, nodeLister v3.NodeLister, resourceType, clusterName string, metricParams map[string]string) (map[string]string, error) {
 	newMetricParams := make(map[string]string)
 	for k, v := range metricParams {
 		newMetricParams[k] = v
@@ -226,7 +226,7 @@ func parseMetricParams(userContext *config.UserContext, resourceType, clusterNam
 		if instance == "" {
 			return nil, fmt.Errorf("instance in metric params is empty")
 		}
-		ip, err = nodeName2InternalIP(userContext, clusterName, instance)
+		ip, err = nodeName2InternalIP(nodeLister, clusterName, instance)
 		if err != nil {
 			return newMetricParams, err
 		}
@@ -320,19 +320,19 @@ func parseTimeParams(from, to, interval string) (start, end time.Time, step time
 	timeRange := NewTimeRange(from, to)
 	start, err = timeRange.ParseFrom()
 	if err != nil {
-		err = fmt.Errorf("parse param from value %s faild, %v", from, err)
+		err = fmt.Errorf("parse param from value %s failed, %v", from, err)
 		return
 	}
 
 	end, err = timeRange.ParseTo()
 	if err != nil {
-		err = fmt.Errorf("parse param to value %s faild, %v", to, err)
+		err = fmt.Errorf("parse param to value %s failed, %v", to, err)
 		return
 	}
 
 	i, err := getIntervalFrom(interval, defaultMinInterval)
 	if err != nil {
-		err = fmt.Errorf("parse param interval value %s faild, %v", i, err)
+		err = fmt.Errorf("parse param interval value %s failed, %v", i, err)
 		return
 	}
 	intervalCalculator := newIntervalCalculator(&IntervalOptions{MinInterval: i})

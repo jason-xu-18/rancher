@@ -307,6 +307,11 @@ func (d *Driver) createStack(svc *cloudformation.CloudFormation, name string, di
 					reason = *event.ResourceStatusReason
 					break
 				}
+
+				if *event.ResourceStatus == "ROLLBACK_IN_PROGRESS" {
+					reason = *event.ResourceStatusReason
+					// do not break so that CREATE_FAILED takes priority
+				}
 			}
 		}
 		return nil, fmt.Errorf("stack failed to create: %v", reason)
@@ -902,6 +907,14 @@ func doesNotExist(err error) bool {
 
 func (d *Driver) GetCapabilities(ctx context.Context) (*types.Capabilities, error) {
 	return &d.driverCapabilities, nil
+}
+
+func (d *Driver) ETCDSave(ctx context.Context, clusterInfo *types.ClusterInfo, opts *types.DriverOptions, snapshotName string) error {
+	return fmt.Errorf("ETCD backup operations are not implemented")
+}
+
+func (d *Driver) ETCDRestore(ctx context.Context, clusterInfo *types.ClusterInfo, opts *types.DriverOptions, snapshotName string) error {
+	return fmt.Errorf("ETCD backup operations are not implemented")
 }
 
 func (d *Driver) GetK8SCapabilities(ctx context.Context, _ *types.DriverOptions) (*types.K8SCapabilities, error) {

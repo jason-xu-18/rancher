@@ -13,6 +13,7 @@ var (
 	RKEVersion string
 
 	AgentImage                      = NewSetting("agent-image", "rancher/rancher-agent:master")
+	AuthImage                       = NewSetting("auth-image", "erikwilson/kube-api-auth:latest") // FIXME: Update to Rancher image when released
 	WindowsAgentImage               = NewSetting("windows-agent-image", "rancher/rancher-agent:master-nanoserver-1803")
 	CACerts                         = NewSetting("cacerts", "")
 	CLIURLDarwin                    = NewSetting("cli-url-darwin", "https://releases.rancher.com/cli/v1.0.0-alpha8/rancher-darwin-amd64-v1.0.0-alpha8.tar.gz")
@@ -43,8 +44,12 @@ var (
 	UIIndex                         = NewSetting("ui-index", "https://releases.rancher.com/ui/latest2/index.html")
 	UIPath                          = NewSetting("ui-path", "")
 	UIPL                            = NewSetting("ui-pl", "rancher")
+	UIKubernetesSupportedVersions   = NewSetting("ui-k8s-supported-versions-range", ">= 1.9.0 <=1.12.x")
+	UIKubernetesDefaultVersion      = NewSetting("ui-k8s-default-version-range", "<=1.11.x")
 	WhitelistDomain                 = NewSetting("whitelist-domain", "forums.rancher.com")
 	SystemMonitoringCatalogID       = NewSetting("system-monitoring-catalog-id", "catalog://?catalog=system-library&template=rancher-monitoring&version=0.0.1")
+	AuthUserInfoResyncCron          = NewSetting("auth-user-info-resync-cron", "0 0 * * *")
+	AuthUserInfoMaxAgeSeconds       = NewSetting("auth-user-info-max-age-seconds", "3600") // 1 hour
 )
 
 type Provider interface {

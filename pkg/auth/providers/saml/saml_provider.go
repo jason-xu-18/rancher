@@ -3,7 +3,6 @@ package saml
 import (
 	"context"
 	"fmt"
-	"github.com/rancher/rancher/pkg/api/store/auth"
 	"net/http"
 	"strings"
 
@@ -12,17 +11,17 @@ import (
 	"github.com/mitchellh/mapstructure"
 	"github.com/pkg/errors"
 	"github.com/rancher/norman/types"
+	"github.com/rancher/rancher/pkg/api/store/auth"
 	"github.com/rancher/rancher/pkg/auth/providers/common"
 	"github.com/rancher/rancher/pkg/auth/tokens"
+	corev1 "github.com/rancher/types/apis/core/v1"
 	"github.com/rancher/types/apis/management.cattle.io/v3"
+	"github.com/rancher/types/apis/management.cattle.io/v3public"
 	"github.com/rancher/types/client/management/v3"
 	publicclient "github.com/rancher/types/client/management/v3public"
 	"github.com/rancher/types/config"
 	"github.com/rancher/types/user"
 	"github.com/sirupsen/logrus"
-
-	corev1 "github.com/rancher/types/apis/core/v1"
-	"github.com/rancher/types/apis/management.cattle.io/v3public"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 )
@@ -30,6 +29,7 @@ import (
 const PingName = "ping"
 const ADFSName = "adfs"
 const KeyCloakName = "keycloak"
+const OKTAName = "okta"
 
 type Provider struct {
 	ctx             context.Context
@@ -79,6 +79,8 @@ func (s *Provider) TransformToAuthProvider(authConfig map[string]interface{}) ma
 		p[publicclient.ADFSProviderFieldRedirectURL] = formSamlRedirectURLFromMap(authConfig, s.name)
 	case KeyCloakName:
 		p[publicclient.KeyCloakProviderFieldRedirectURL] = formSamlRedirectURLFromMap(authConfig, s.name)
+	case OKTAName:
+		p[publicclient.OKTAProviderFieldRedirectURL] = formSamlRedirectURLFromMap(authConfig, s.name)
 	}
 	return p
 }
@@ -169,6 +171,8 @@ func (s *Provider) saveSamlConfig(config *v3.SamlConfig) error {
 		configType = client.ADFSConfigType
 	case KeyCloakName:
 		configType = client.KeyCloakConfigType
+	case OKTAName:
+		configType = client.OKTAConfigType
 	}
 
 	config.APIVersion = "management.cattle.io/v3"
@@ -212,6 +216,11 @@ func (s *Provider) toPrincipal(principalType string, princ v3.Principal, token *
 	}
 
 	return princ
+}
+
+func (s *Provider) RefetchGroupPrincipals(principalID string, secret string) ([]v3.Principal, error) {
+	// This should never be called
+	return nil, errors.New("Not implemented")
 }
 
 func (s *Provider) SearchPrincipals(searchKey, principalType string, token v3.Token) ([]v3.Principal, error) {
@@ -274,8 +283,23 @@ func formSamlRedirectURLFromMap(config map[string]interface{}, name string) stri
 		hostname, _ = config[client.ADFSConfigFieldRancherAPIHost].(string)
 	case KeyCloakName:
 		hostname, _ = config[client.KeyCloakConfigFieldRancherAPIHost].(string)
+	case OKTAName:
+		hostname, _ = config[client.OKTAConfigFieldRancherAPIHost].(string)
 	}
 
 	path := hostname + "/v1-saml/" + name + "/login"
 	return path
+}
+
+func (s *Provider) CanAccessWithGroupProviders(userPrincipalID string, groupPrincipals []v3.Principal) (bool, error) {
+	config, err := s.getSamlConfig()
+	if err != nil {
+		logrus.Errorf("Error fetching saml config: %v", err)
+		return false, err
+	}
+	allowed, err := s.userMGR.CheckAccess(config.AccessMode, config.AllowedPrincipalIDs, userPrincipalID, groupPrincipals)
+	if err != nil {
+		return false, err
+	}
+	return allowed, nil
 }

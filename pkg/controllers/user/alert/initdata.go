@@ -51,7 +51,7 @@ func initClusterPreCanAlerts(clusterAlertGroups v3.ClusterAlertGroupInterface, c
 			MetricRule: &v3.MetricRule{
 				Description:    "Etcd member has no leader",
 				Expression:     `etcd_server_has_leader{job="exporter-kube-etcd-cluster-monitoring"}`,
-				Comparison:     manager.ComparisonLessThan,
+				Comparison:     manager.ComparisonNotEqual,
 				Duration:       "3m",
 				ThresholdValue: 1,
 			},
@@ -359,7 +359,7 @@ func initClusterPreCanAlerts(clusterAlertGroups v3.ClusterAlertGroupInterface, c
 		logrus.Warnf("Failed to create precan rules for event: %v", err)
 	}
 
-	name = "deploment-event-alert"
+	name = "deployment-event-alert"
 	rule = &v3.ClusterAlertRule{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
@@ -465,8 +465,8 @@ func (l *ProjectLifecycle) Create(obj *v3.Project) (runtime.Object, error) {
 				TimingField: defaultTimingField,
 			},
 			MetricRule: &v3.MetricRule{
-				Description:    "Pod using memory close to the quota",
-				Expression:     `sum(container_memory_working_set_bytes{pod_name=~"prometheus-cluster-monitoring.*"}) by (pod_name) / sum(label_join(kube_pod_container_resource_limits_memory_bytes{pod=~"prometheus-cluster-monitoring.*"},"pod_name", "", "pod")) by (pod_name)`,
+				Description:    "Container using memory close to the quota",
+				Expression:     `sum(container_memory_working_set_bytes) by (pod_name, container_name) / sum(label_join(label_join(kube_pod_container_resource_limits_memory_bytes,"pod_name", "", "pod"),"container_name", "", "container")) by (pod_name, container_name)`,
 				Comparison:     manager.ComparisonGreaterThan,
 				Duration:       "3m",
 				ThresholdValue: 1,

@@ -146,7 +146,7 @@ func (d *ConfigSyncer) sync() error {
 	}
 
 	config := manager.GetAlertManagerDefaultConfig()
-	config.Global.PagerdutyURL = "https://events.pagerduty.com/generic/2010-04-15/create_event.json"
+	config.Global.PagerdutyURL = "https://events.pagerduty.com/v2/enqueue"
 
 	if err = d.addClusterAlert2Config(config, cAlertsMap, cAlertsKey, notifiers); err != nil {
 		return err
@@ -218,7 +218,7 @@ func (d *ConfigSyncer) addProjectAlert2Operator(projectGroups map[string]map[str
 			for _, alertRule := range alertRules {
 				if alertRule.Spec.MetricRule != nil {
 					ruleID := common.GetRuleID(alertRule.Spec.GroupName, alertRule.Name)
-					promRule := manager.Metric2Rule(groupID, ruleID, alertRule.Spec.Severity, alertRule.Spec.DisplayName, d.clusterName, alertRule.Spec.MetricRule)
+					promRule := manager.Metric2Rule(groupID, ruleID, alertRule.Spec.Severity, alertRule.Spec.DisplayName, d.clusterName, projectName, alertRule.Spec.MetricRule)
 					d.operatorCRDManager.AddRule(ruleGroup, promRule)
 				}
 			}
@@ -249,7 +249,7 @@ func (d *ConfigSyncer) addClusterAlert2Operator(groupRules map[string][]*v3.Clus
 		for _, alertRule := range alertRules {
 			if alertRule.Spec.MetricRule != nil {
 				ruleID := common.GetRuleID(alertRule.Spec.GroupName, alertRule.Name)
-				promRule := manager.Metric2Rule(groupID, ruleID, alertRule.Spec.Severity, alertRule.Spec.DisplayName, d.clusterName, alertRule.Spec.MetricRule)
+				promRule := manager.Metric2Rule(groupID, ruleID, alertRule.Spec.Severity, alertRule.Spec.DisplayName, d.clusterName, "", alertRule.Spec.MetricRule)
 				d.operatorCRDManager.AddRule(ruleGroup, promRule)
 			}
 		}
@@ -404,6 +404,30 @@ func (d *ConfigSyncer) addRecipients(notifiers []*v3.Notifier, receiver *alertco
 					pagerduty.ServiceKey = alertconfig.Secret(r.Recipient)
 				}
 				receiver.PagerdutyConfigs = append(receiver.PagerdutyConfigs, pagerduty)
+				receiverExist = true
+
+			} else if notifier.Spec.WechatConfig != nil {
+				wechat := &alertconfig.WechatConfig{
+					APISecret: alertconfig.Secret(notifier.Spec.WechatConfig.Secret),
+					AgentID:   notifier.Spec.WechatConfig.Agent,
+					CorpID:    notifier.Spec.WechatConfig.Corp,
+				}
+
+				recipient := notifier.Spec.WechatConfig.DefaultRecipient
+				if r.Recipient != "" {
+					recipient = r.Recipient
+				}
+
+				switch notifier.Spec.WechatConfig.RecipientType {
+				case "tag":
+					wechat.ToTag = recipient
+				case "user":
+					wechat.ToUser = recipient
+				default:
+					wechat.ToParty = recipient
+				}
+
+				receiver.WechatConfigs = append(receiver.WechatConfigs, wechat)
 				receiverExist = true
 
 			} else if notifier.Spec.WebhookConfig != nil {

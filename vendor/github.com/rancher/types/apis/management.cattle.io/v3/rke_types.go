@@ -41,6 +41,10 @@ type RancherKubernetesEngineConfig struct {
 	BastionHost BastionHost `yaml:"bastion_host" json:"bastionHost,omitempty"`
 	// Monitoring Config
 	Monitoring MonitoringConfig `yaml:"monitoring" json:"monitoring,omitempty"`
+	// RestoreCluster flag
+	Restore RestoreConfig `yaml:"restore" json:"restore,omitempty"`
+	// Rotating Certificates Option
+	RotateCertificates *RotateCertificates `yaml:"rotate_certificates,omitempty" json:"rotateCertificates,omitempty"`
 }
 
 type BastionHost struct {
@@ -183,6 +187,8 @@ type ETCDService struct {
 	Retention string `yaml:"retention" json:"retention,omitempty" norman:"default=72h"`
 	// Etcd snapshot Creation period
 	Creation string `yaml:"creation" json:"creation,omitempty" norman:"default=12h"`
+	// Backup backend for etcd snapshots, used by rke only
+	BackupConfig *BackupConfig `yaml:"backup_target" json:"backupConfig,omitempty"`
 }
 
 type KubeAPIService struct {
@@ -194,6 +200,8 @@ type KubeAPIService struct {
 	ServiceNodePortRange string `yaml:"service_node_port_range" json:"serviceNodePortRange,omitempty" norman:"default=30000-32767"`
 	// Enabled/Disable PodSecurityPolicy
 	PodSecurityPolicy bool `yaml:"pod_security_policy" json:"podSecurityPolicy,omitempty"`
+	// Enable/Disable AlwaysPullImages admissions plugin
+	AlwaysPullImages bool `yaml:"always_pull_images" json:"always_pull_images,omitempty"`
 }
 
 type KubeControllerService struct {
@@ -254,13 +262,20 @@ type NetworkConfig struct {
 	WeaveNetworkProvider *WeaveNetworkProvider `yaml:",omitempty" json:"weaveNetworkProvider,omitempty"`
 }
 
+type AuthWebhookConfig struct {
+	// ConfigFile is a multiline string that represent a custom webhook config file
+	ConfigFile string `yaml:"config_file" json:"configFile,omitempty"`
+	// CacheTimeout controls how long to cache authentication decisions
+	CacheTimeout string `yaml:"cache_timeout" json:"cacheTimeout,omitempty"`
+}
+
 type AuthnConfig struct {
 	// Authentication strategy that will be used in kubernetes cluster
 	Strategy string `yaml:"strategy" json:"strategy,omitempty" norman:"default=x509"`
-	// Authentication options
-	Options map[string]string `yaml:"options" json:"options,omitempty"`
 	// List of additional hostnames and IPs to include in the api server PKI cert
 	SANs []string `yaml:"sans" json:"sans,omitempty"`
+	// Webhook configuration options
+	Webhook *AuthWebhookConfig `yaml:"webhook" json:"webhook,omitempty"`
 }
 
 type AuthzConfig struct {
@@ -572,4 +587,15 @@ type MonitoringConfig struct {
 	Provider string `yaml:"provider" json:"provider,omitempty" norman:"default=metrics-server"`
 	// Metrics server options
 	Options map[string]string `yaml:"options" json:"options,omitempty"`
+}
+
+type RestoreConfig struct {
+	Restore      bool   `yaml:"restore" json:"restore,omitempty"`
+	SnapshotName string `yaml:"snapshot_name" json:"snapshotName,omitempty"`
+}
+type RotateCertificates struct {
+	// Rotate CA Certificates
+	CACertificates bool `json:"caCertificates,omitempty"`
+	// Services to rotate their certs
+	Services []string `json:"services,omitempty" norman:"type=enum,options=etcd|kubelet|kube-apiserver|kube-proxy|kube-scheduler|kube-controller-manager"`
 }

@@ -13,6 +13,8 @@ func RegisterEarly(ctx context.Context, management *config.ManagementContext) {
 	p, c := newPandCLifecycles(management)
 	u := newUserLifecycle(management)
 	n := newTokenController(management)
+	ua := newUserAttributeController(management)
+	s := newAuthSettingController(management)
 
 	management.Management.ProjectRoleTemplateBindings("").AddLifecycle(ctx, ptrbMGMTController, prtb)
 	management.Management.ClusterRoleTemplateBindings("").AddLifecycle(ctx, ctrbMGMTController, crtb)
@@ -22,6 +24,8 @@ func RegisterEarly(ctx context.Context, management *config.ManagementContext) {
 	management.Management.Clusters("").AddHandler(ctx, clusterCreateController, c.sync)
 	management.Management.Users("").AddLifecycle(ctx, userController, u)
 	management.Management.Tokens("").AddHandler(ctx, tokenController, n.sync)
+	management.Management.UserAttributes("").AddHandler(ctx, userAttributeController, ua.sync)
+	management.Management.Settings("").AddHandler(ctx, authSettingController, s.sync)
 }
 
 func RegisterLate(ctx context.Context, management *config.ManagementContext) {

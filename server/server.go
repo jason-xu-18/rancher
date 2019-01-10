@@ -11,7 +11,8 @@ import (
 	"github.com/rancher/rancher/pkg/audit"
 	"github.com/rancher/rancher/pkg/auth/providers/publicapi"
 	"github.com/rancher/rancher/pkg/auth/providers/saml"
-	authrequests "github.com/rancher/rancher/pkg/auth/requests"
+	"github.com/rancher/rancher/pkg/auth/requests"
+	"github.com/rancher/rancher/pkg/auth/requests/sar"
 	"github.com/rancher/rancher/pkg/auth/tokens"
 	"github.com/rancher/rancher/pkg/clustermanager"
 	rancherdialer "github.com/rancher/rancher/pkg/dialer"
@@ -51,7 +52,9 @@ func Start(ctx context.Context, httpPort, httpsPort int, scaledContext *config.S
 
 	rawAuthedAPIs := newAuthed(tokenAPI, managementAPI, k8sProxy)
 
-	authedHandler, err := authrequests.NewAuthenticationFilter(ctx, scaledContext, rawAuthedAPIs)
+	sar := sar.NewSubjectAccessReview(clusterManager)
+
+	authedHandler, err := requests.NewAuthenticationFilter(ctx, scaledContext, rawAuthedAPIs, sar)
 	if err != nil {
 		return err
 	}
@@ -85,6 +88,10 @@ func Start(ctx context.Context, httpPort, httpsPort int, scaledContext *config.S
 	uiContent := responsewriter.NewMiddlewareChain(responsewriter.Gzip, responsewriter.CacheMiddleware("json", "js", "css")).Handler(ui.Content())
 	root.PathPrefix("/assets").Handler(uiContent)
 	root.PathPrefix("/translations").Handler(uiContent)
+	root.PathPrefix("/ember-fetch").Handler(uiContent)
+	root.PathPrefix("/engines-dist").Handler(uiContent)
+	root.Handle("/asset-manifest.json", uiContent)
+	root.Handle("/crossdomain.xml", uiContent)
 	root.Handle("/humans.txt", uiContent)
 	root.Handle("/index.html", uiContent)
 	root.Handle("/robots.txt", uiContent)

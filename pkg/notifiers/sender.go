@@ -7,8 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/prometheus/common/model"
-	"github.com/rancher/types/apis/management.cattle.io/v3"
 	"io/ioutil"
 	"mime/multipart"
 	"net"
@@ -18,11 +16,23 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/prometheus/common/model"
+	"github.com/rancher/types/apis/management.cattle.io/v3"
 )
 
 type Message struct {
 	Title   string
 	Content string
+}
+
+type wechatToken struct {
+	AccessToken string `json:"access_token"`
+}
+
+type wechatResponse struct {
+	Code  int    `json:"code"`
+	Error string `json:"error"`
 }
 
 func SendMessage(notifier *v3.Notifier, recipient string, msg *Message) error {
@@ -45,6 +55,14 @@ func SendMessage(notifier *v3.Notifier, recipient string, msg *Message) error {
 		return TestPagerduty(notifier.Spec.PagerdutyConfig.ServiceKey, msg.Content)
 	}
 
+	if notifier.Spec.WechatConfig != nil {
+		s := notifier.Spec.WechatConfig
+		if recipient == "" {
+			recipient = s.DefaultRecipient
+		}
+		return TestWechat(notifier.Spec.WechatConfig.Secret, notifier.Spec.WechatConfig.Agent, notifier.Spec.WechatConfig.Corp, notifier.Spec.WechatConfig.RecipientType, recipient, msg.Content)
+	}
+
 	if notifier.Spec.WebhookConfig != nil {
 		return TestWebhook(notifier.Spec.WebhookConfig.URL, msg.Content)
 	}
@@ -57,14 +75,18 @@ func TestPagerduty(key, msg string) error {
 		msg = "Pagerduty setting validated"
 	}
 
-	pd := &pagerDutyMessage{
-		ServiceKey:  key,
-		EventType:   "trigger",
-		IncidentKey: hashKey("key"),
-		Description: msg,
+	pd := &pagerDutyEvent{
+		RoutingKey:  key,
+		EventAction: "trigger",
+		Payload: pagerDutyEventPayload{
+			Summary:  msg,
+			Source:   "rancher",
+			Severity: "info",
+			Group:    "Rancher alert testing",
+		},
 	}
 
-	url := "https://events.pagerduty.com/generic/2010-04-15/create_event.json"
+	url := "https://events.pagerduty.com/v2/enqueue"
 
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(pd); err != nil {
@@ -75,8 +97,97 @@ func TestPagerduty(key, msg string) error {
 		return err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("http status code is not 200")
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("http status code is %d, not include in the 2xx success HTTP status codes", resp.StatusCode)
+	}
+
+	return nil
+}
+
+func TestWechat(secret, agent, corp, receiverType, receiver, msg string) error {
+	if msg == "" {
+		msg = "Wechat setting validated"
+	}
+
+	req, err := http.NewRequest(http.MethodGet, "https://qyapi.weixin.qq.com/cgi-bin/gettoken", nil)
+	if err != nil {
+		return err
+	}
+
+	q := req.URL.Query()
+	q.Add("corpid", corp)
+	q.Add("corpsecret", secret)
+	req.URL.RawQuery = q.Encode()
+
+	client := &http.Client{
+		Timeout: 15 * time.Second,
+	}
+	var wechatToken wechatToken
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	requestBytes, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	if err := json.Unmarshal(requestBytes, &wechatToken); err != nil {
+		return err
+	}
+
+	if wechatToken.AccessToken == "" {
+		return fmt.Errorf("Invalid APISecret for CorpID. %s", corp)
+	}
+
+	wc := &wechatEvent{
+		AgentID: agent,
+		MsgType: "text",
+		Text: wechatEventPayload{
+			Content: msg,
+		},
+	}
+
+	switch receiverType {
+	case "tag":
+		wc.ToTag = receiver
+	case "user":
+		wc.ToUser = receiver
+	default:
+		wc.ToParty = receiver
+	}
+
+	url := "https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=" + wechatToken.AccessToken
+
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(wc); err != nil {
+		return err
+	}
+	resp, err = http.Post(url, "application/json", &buf)
+
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return fmt.Errorf("http status code is %d, not include in the 2xx success HTTP status codes", resp.StatusCode)
+	}
+
+	requestBytes, err = ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return err
+	}
+
+	var weResp wechatResponse
+	if err := json.Unmarshal(requestBytes, &weResp); err != nil {
+		return err
+	}
+
+	if weResp.Code != 0 {
+		return fmt.Errorf("Failed to send Wechat message. %s", weResp.Error)
 	}
 
 	return nil
@@ -269,19 +380,36 @@ func smtpSend(c *smtp.Client, title, content, receiver, sender string) error {
 	return nil
 }
 
-type pagerDutyMessage struct {
-	RoutingKey  string `json:"routing_key,omitempty"`
-	ServiceKey  string `json:"service_key,omitempty"`
-	DedupKey    string `json:"dedup_key,omitempty"`
-	IncidentKey string `json:"incident_key,omitempty"`
-	EventType   string `json:"event_type,omitempty"`
-	Description string `json:"description,omitempty"`
+type pagerDutyEventPayload struct {
+	Summary  string `json:"summary"`
+	Source   string `json:"source"`
+	Severity string `json:"severity"`
+	Group    string `json:"group"`
+}
+
+type pagerDutyEvent struct {
+	RoutingKey  string                `json:"routing_key"`
+	EventAction string                `json:"event_action"`
+	Payload     pagerDutyEventPayload `json:"payload"`
 }
 
 func hashKey(s string) string {
 	h := sha256.New()
 	h.Write([]byte(s))
 	return fmt.Sprintf("%x", h.Sum(nil))
+}
+
+type wechatEventPayload struct {
+	Content string `json:"content"`
+}
+
+type wechatEvent struct {
+	ToParty string             `json:"toparty"`
+	ToUser  string             `json:"touser"`
+	ToTag   string             `json:"totag"`
+	AgentID string             `json:"agentid"`
+	MsgType string             `json:"msgtype"`
+	Text    wechatEventPayload `json:"text"`
 }
 
 func auth(mechs string, username, password string) (smtp.Auth, error) {

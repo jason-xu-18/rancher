@@ -39,6 +39,8 @@ const (
 	ProtocolTCP = "TCP"
 	ProtocolUDP = "UDP"
 
+	NoNetworkPlugin = "none"
+
 	FlannelNetworkPlugin = "flannel"
 	FlannelIface         = "flannel_iface"
 	FlannelBackendType   = "flannel_backend_type"
@@ -122,6 +124,9 @@ func (c *Cluster) deployNetworkPlugin(ctx context.Context) error {
 		return c.doCanalDeploy(ctx)
 	case WeaveNetworkPlugin:
 		return c.doWeaveDeploy(ctx)
+	case NoNetworkPlugin:
+		log.Infof(ctx, "[network] Not deploying a cluster network, expecting custom CNI")
+		return nil
 	default:
 		return fmt.Errorf("[network] Unsupported network plugin: %s", c.Network.Plugin)
 	}
@@ -210,9 +215,9 @@ func (c *Cluster) getNetworkPluginManifest(pluginConfig map[string]interface{}) 
 	case FlannelNetworkPlugin:
 		return templates.CompileTemplateFromMap(templates.FlannelTemplate, pluginConfig)
 	case CalicoNetworkPlugin:
-		return templates.CompileTemplateFromMap(templates.CalicoTemplate, pluginConfig)
+		return templates.CompileTemplateFromMap(templates.GetVersionedTemplates(CalicoNetworkPlugin, c.Version), pluginConfig)
 	case CanalNetworkPlugin:
-		return templates.CompileTemplateFromMap(templates.CanalTemplate, pluginConfig)
+		return templates.CompileTemplateFromMap(templates.GetVersionedTemplates(CanalNetworkPlugin, c.Version), pluginConfig)
 	case WeaveNetworkPlugin:
 		return templates.CompileTemplateFromMap(templates.WeaveTemplate, pluginConfig)
 	default:

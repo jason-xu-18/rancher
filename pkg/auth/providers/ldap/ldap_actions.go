@@ -2,13 +2,13 @@ package ldap
 
 import (
 	"fmt"
-	"github.com/rancher/rancher/pkg/api/store/auth"
 	"strings"
 
 	"github.com/mitchellh/mapstructure"
 	"github.com/rancher/norman/api/handler"
 	"github.com/rancher/norman/httperror"
 	"github.com/rancher/norman/types"
+	"github.com/rancher/rancher/pkg/api/store/auth"
 	"github.com/rancher/rancher/pkg/auth/providers/common"
 	"github.com/rancher/types/apis/management.cattle.io/v3"
 	managementschema "github.com/rancher/types/apis/management.cattle.io/v3/schema"
@@ -118,7 +118,7 @@ func (p *ldapProvider) saveLDAPConfig(config *v3.LdapConfig) error {
 
 	field := strings.ToLower(auth.TypeToField[config.Type])
 	if err := common.CreateOrUpdateSecrets(p.secrets, config.ServiceAccountPassword,
-		strings.ToLower(config.Type), field); err != nil {
+		field, strings.ToLower(config.Type)); err != nil {
 		return err
 	}
 

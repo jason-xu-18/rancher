@@ -17,6 +17,7 @@ import (
 	"github.com/rancher/rancher/pkg/pipeline/utils"
 	"github.com/rancher/rancher/pkg/ref"
 	"github.com/rancher/rancher/pkg/settings"
+	"github.com/rancher/rancher/pkg/systemaccount"
 	"github.com/rancher/types/apis/apps/v1beta2"
 	"github.com/rancher/types/apis/core/v1"
 	mv3 "github.com/rancher/types/apis/management.cattle.io/v3"
@@ -64,18 +65,19 @@ type executionSummary struct {
 }
 
 type Lifecycle struct {
-	namespaceLister   v1.NamespaceLister
-	namespaces        v1.NamespaceInterface
-	secrets           v1.SecretInterface
-	serviceLister     v1.ServiceLister
-	managementSecrets v1.SecretInterface
-	services          v1.ServiceInterface
-	serviceAccounts   v1.ServiceAccountInterface
-	configMapLister   v1.ConfigMapLister
-	configMaps        v1.ConfigMapInterface
-	podLister         v1.PodLister
-	pods              v1.PodInterface
-	networkPolicies   networkv1.NetworkPolicyInterface
+	systemAccountManager *systemaccount.Manager
+	namespaceLister      v1.NamespaceLister
+	namespaces           v1.NamespaceInterface
+	secrets              v1.SecretInterface
+	serviceLister        v1.ServiceLister
+	managementSecrets    v1.SecretInterface
+	services             v1.ServiceInterface
+	serviceAccounts      v1.ServiceAccountInterface
+	configMapLister      v1.ConfigMapLister
+	configMaps           v1.ConfigMapInterface
+	podLister            v1.PodLister
+	pods                 v1.PodInterface
+	networkPolicies      networkv1.NetworkPolicyInterface
 
 	clusterRoleBindings rbacv1.ClusterRoleBindingInterface
 	roleBindings        rbacv1.RoleBindingInterface
@@ -122,24 +124,25 @@ func Register(ctx context.Context, cluster *config.UserContext) {
 	sourceCodeCredentialLister := cluster.Management.Project.SourceCodeCredentials("").Controller().Lister()
 	notifierLister := cluster.Management.Management.Notifiers("").Controller().Lister()
 
-	pipelineEngine := engine.New(cluster)
+	pipelineEngine := engine.New(cluster, true)
 	pipelineExecutionLifecycle := &Lifecycle{
-		namespaces:          namespaces,
-		namespaceLister:     namespaceLister,
-		secrets:             secrets,
-		managementSecrets:   managementSecrets,
-		services:            services,
-		serviceLister:       serviceLister,
-		serviceAccounts:     serviceAccounts,
-		networkPolicies:     networkPolicies,
-		clusterRoleBindings: clusterRoleBindings,
-		roleBindings:        roleBindings,
-		deployments:         deployments,
-		daemonsets:          daemonsets,
-		pods:                pods,
-		podLister:           podLister,
-		configMaps:          configMaps,
-		configMapLister:     configMapLister,
+		systemAccountManager: systemaccount.NewManager(cluster.Management),
+		namespaces:           namespaces,
+		namespaceLister:      namespaceLister,
+		secrets:              secrets,
+		managementSecrets:    managementSecrets,
+		services:             services,
+		serviceLister:        serviceLister,
+		serviceAccounts:      serviceAccounts,
+		networkPolicies:      networkPolicies,
+		clusterRoleBindings:  clusterRoleBindings,
+		roleBindings:         roleBindings,
+		deployments:          deployments,
+		daemonsets:           daemonsets,
+		pods:                 pods,
+		podLister:            podLister,
+		configMaps:           configMaps,
+		configMapLister:      configMapLister,
 
 		pipelineLister:             pipelineLister,
 		pipelines:                  pipelines,
@@ -201,28 +204,7 @@ func (l *Lifecycle) Sync(obj *v3.PipelineExecution) (runtime.Object, error) {
 
 	//doIfFinish
 	if obj.Labels != nil && obj.Labels[utils.PipelineFinishLabel] == "true" {
-		if err := l.doCleanup(obj); err != nil {
-			return obj, err
-		}
-
-		shouldNotify, err := l.shouldNotify(obj)
-		if err != nil {
-			return obj, err
-		}
-		if shouldNotify {
-			newObj, err := v3.PipelineExecutionConditionNotified.Once(obj, func() (runtime.Object, error) {
-				return l.doNotify(obj)
-			})
-			if err != nil {
-				return newObj.(*v3.PipelineExecution), err
-			}
-		}
-		//start a queueing execution if there is any
-		if err := l.startQueueingExecution(obj); err != nil {
-			return obj, err
-		}
-
-		return obj, nil
+		return l.doFinish(obj)
 	}
 
 	//doIfRunning
@@ -244,6 +226,8 @@ func (l *Lifecycle) Sync(obj *v3.PipelineExecution) (runtime.Object, error) {
 		}
 
 		return obj, nil
+	} else if obj.Status.ExecutionState == utils.StateQueueing {
+		obj.Status.ExecutionState = utils.StateWaiting
 	}
 
 	//doIfOnCreation
@@ -253,7 +237,7 @@ func (l *Lifecycle) Sync(obj *v3.PipelineExecution) (runtime.Object, error) {
 	v3.PipelineExecutionConditionInitialized.CreateUnknownIfNotExists(obj)
 	obj.Labels[utils.PipelineFinishLabel] = "false"
 
-	if err := l.deploy(obj); err != nil {
+	if err := l.deploy(obj.Spec.ProjectName); err != nil {
 		obj.Labels[utils.PipelineFinishLabel] = "true"
 		obj.Status.ExecutionState = utils.StateFailed
 		v3.PipelineExecutionConditionInitialized.False(obj)
@@ -261,6 +245,31 @@ func (l *Lifecycle) Sync(obj *v3.PipelineExecution) (runtime.Object, error) {
 	}
 
 	if err := l.markLocalRegistryPort(obj); err != nil {
+		return obj, err
+	}
+
+	return obj, nil
+}
+
+func (l *Lifecycle) doFinish(obj *v3.PipelineExecution) (*v3.PipelineExecution, error) {
+	if err := l.doCleanup(obj); err != nil {
+		return obj, err
+	}
+
+	shouldNotify, err := l.shouldNotify(obj)
+	if err != nil {
+		return obj, err
+	}
+	if shouldNotify {
+		newObj, err := v3.PipelineExecutionConditionNotified.Once(obj, func() (runtime.Object, error) {
+			return l.doNotify(obj)
+		})
+		if err != nil {
+			return newObj.(*v3.PipelineExecution), err
+		}
+	}
+	//start a queueing execution if there is any
+	if err := l.startQueueingExecution(obj); err != nil {
 		return obj, err
 	}
 
@@ -407,7 +416,7 @@ func (l *Lifecycle) doCleanup(obj *v3.PipelineExecution) error {
 	if err := l.pipelineEngine.StopExecution(obj); err != nil {
 		return err
 	}
-	ns := utils.GetPipelineCommonName(obj)
+	ns := utils.GetPipelineCommonName(obj.Spec.ProjectName)
 
 	labelSet := labels.Set{
 		utils.LabelKeyApp:       utils.JenkinsName,
@@ -426,7 +435,10 @@ func (l *Lifecycle) doCleanup(obj *v3.PipelineExecution) error {
 }
 
 func (l *Lifecycle) Remove(obj *v3.PipelineExecution) (runtime.Object, error) {
-	return obj, nil
+	if utils.IsFinishState(obj.Status.ExecutionState) {
+		return obj, nil
+	}
+	return l.doFinish(obj)
 }
 
 func (l *Lifecycle) shouldNotify(obj *v3.PipelineExecution) (bool, error) {
@@ -511,9 +523,9 @@ func (l *Lifecycle) GetName() string {
 }
 
 //reconcileRb grant access to pipeline service account inside project namespaces
-func (l *Lifecycle) reconcileRb(obj *v3.PipelineExecution) error {
-	commonName := utils.GetPipelineCommonName(obj)
-	_, projectID := ref.Parse(obj.Spec.ProjectName)
+func (l *Lifecycle) reconcileRb(projectName string) error {
+	commonName := utils.GetPipelineCommonName(projectName)
+	_, projectID := ref.Parse(projectName)
 
 	namespaces, err := l.namespaceLister.List("", labels.NewSelector())
 	if err != nil {

@@ -25,6 +25,8 @@ type Token struct {
 	Expired         bool              `json:"expired"`
 	ExpiresAt       string            `json:"expiresAt"`
 	Current         bool              `json:"current"`
+	ClusterName     string            `json:"clusterName,omitempty" norman:"noupdate,type=reference[cluster]"`
+	Enabled         *bool             `json:"enabled,omitempty" norman:"default=true"`
 }
 
 type User struct {
@@ -71,6 +73,8 @@ type UserAttribute struct {
 
 	UserName        string
 	GroupPrincipals map[string]Principals // the value is a []Principal, but code generator cannot handle slice as a value
+	LastRefresh     string
+	NeedsRefresh    bool
 }
 
 type Principals struct {
@@ -305,5 +309,9 @@ type ADFSConfig struct {
 }
 
 type KeyCloakConfig struct {
+	SamlConfig `json:",inline" mapstructure:",squash"`
+}
+
+type OKTAConfig struct {
 	SamlConfig `json:",inline" mapstructure:",squash"`
 }

@@ -25,8 +25,8 @@ const (
 )
 
 var clusterManagmentPlaneResources = []string{"clusterroletemplatebindings", "nodes", "nodepools", "clusterevents",
-	"projects", "clusterregistrationtokens", "clusterloggings", "notifiers", "clusteralerts",
-	"podsecuritypolicytemplateprojectbindings", "clustercatalogs"}
+	"projects", "clusterregistrationtokens", "clusterloggings", "notifiers", "clusteralertrules", "clusteralertgroups",
+	"podsecuritypolicytemplateprojectbindings", "clustercatalogs", "clustermonitorgraphs"}
 
 type crtbLifecycle struct {
 	mgr           *manager

@@ -15,7 +15,7 @@ type PipelineEngine interface {
 	SyncExecution(execution *v3.PipelineExecution) (bool, error)
 }
 
-func New(cluster *config.UserContext) PipelineEngine {
+func New(cluster *config.UserContext, useCache bool) PipelineEngine {
 	serviceLister := cluster.Core.Services("").Controller().Lister()
 	podLister := cluster.Core.Pods("").Controller().Lister()
 	secrets := cluster.Core.Secrets("")
@@ -24,9 +24,11 @@ func New(cluster *config.UserContext) PipelineEngine {
 	sourceCodeCredentials := cluster.Management.Project.SourceCodeCredentials("")
 	sourceCodeCredentialLister := sourceCodeCredentials.Controller().Lister()
 	pipelineLister := cluster.Management.Project.Pipelines("").Controller().Lister()
+	pipelineSettingLister := cluster.Management.Project.PipelineSettings("").Controller().Lister()
 	dialer := cluster.Management.Dialer
 
 	engine := &jenkins.Engine{
+		UseCache:                   useCache,
 		ServiceLister:              serviceLister,
 		PodLister:                  podLister,
 		Secrets:                    secrets,
@@ -35,6 +37,7 @@ func New(cluster *config.UserContext) PipelineEngine {
 		SourceCodeCredentials:      sourceCodeCredentials,
 		SourceCodeCredentialLister: sourceCodeCredentialLister,
 		PipelineLister:             pipelineLister,
+		PipelineSettingLister:      pipelineSettingLister,
 
 		Dialer:      dialer,
 		ClusterName: cluster.ClusterName,

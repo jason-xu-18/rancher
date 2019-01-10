@@ -24,13 +24,19 @@ func (f *Formatter) Formatter(request *types.APIContext, resource *types.RawReso
 	resource.AddAction(request, "generateKubeconfig")
 	resource.AddAction(request, "importYaml")
 	resource.AddAction(request, "exportYaml")
-
-	if convert.ToBool(resource.Values["enableClusterMonitoring"]) {
-		resource.AddAction(request, "disableMonitoring")
-	} else {
-		resource.AddAction(request, "enableMonitoring")
+	if _, ok := resource.Values["rancherKubernetesEngineConfig"]; ok {
+		resource.AddAction(request, "rotateCertificates")
+		resource.AddAction(request, "backupEtcd")
+		resource.AddAction(request, "restoreFromEtcdBackup")
 	}
 
+	if err := request.AccessControl.CanDo(v3.ClusterGroupVersionKind.Group, v3.ClusterResource.Name, "update", request, resource.Values, request.Schema); err == nil {
+		if convert.ToBool(resource.Values["enableClusterMonitoring"]) {
+			resource.AddAction(request, "disableMonitoring")
+		} else {
+			resource.AddAction(request, "enableMonitoring")
+		}
+	}
 	if gkeConfig, ok := resource.Values["googleKubernetesEngineConfig"]; ok {
 		configMap, ok := gkeConfig.(map[string]interface{})
 		if !ok {

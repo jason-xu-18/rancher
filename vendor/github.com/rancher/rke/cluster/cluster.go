@@ -28,6 +28,7 @@ import (
 )
 
 type Cluster struct {
+	AuthnStrategies                  map[string]bool
 	ConfigPath                       string
 	ConfigDir                        string
 	CloudConfigFile                  string
@@ -36,6 +37,7 @@ type Cluster struct {
 	ClusterDomain                    string
 	ClusterCIDR                      string
 	ClusterDNSServer                 string
+	DinD                             bool
 	DockerDialerFactory              hosts.DialerFactory
 	EtcdHosts                        []*hosts.Host
 	EtcdReadyHosts                   []*hosts.Host
@@ -54,21 +56,22 @@ type Cluster struct {
 }
 
 const (
-	X509AuthenticationProvider = "x509"
-	StateConfigMapName         = "cluster-state"
-	FullStateConfigMapName     = "full-cluster-state"
-	UpdateStateTimeout         = 30
-	GetStateTimeout            = 30
-	KubernetesClientTimeOut    = 30
-	SyncWorkers                = 10
-	NoneAuthorizationMode      = "none"
-	LocalNodeAddress           = "127.0.0.1"
-	LocalNodeHostname          = "localhost"
-	LocalNodeUser              = "root"
-	CloudProvider              = "CloudProvider"
-	ControlPlane               = "controlPlane"
-	WorkerPlane                = "workerPlan"
-	EtcdPlane                  = "etcd"
+	AuthnX509Provider       = "x509"
+	AuthnWebhookProvider    = "webhook"
+	StateConfigMapName      = "cluster-state"
+	FullStateConfigMapName  = "full-cluster-state"
+	UpdateStateTimeout      = 30
+	GetStateTimeout         = 30
+	KubernetesClientTimeOut = 30
+	SyncWorkers             = 10
+	NoneAuthorizationMode   = "none"
+	LocalNodeAddress        = "127.0.0.1"
+	LocalNodeHostname       = "localhost"
+	LocalNodeUser           = "root"
+	CloudProvider           = "CloudProvider"
+	ControlPlane            = "controlPlane"
+	WorkerPlane             = "workerPlan"
+	EtcdPlane               = "etcd"
 
 	KubeAppLabel = "k8s-app"
 	AppLabel     = "app"
@@ -88,12 +91,7 @@ func (c *Cluster) DeployControlPlane(ctx context.Context) error {
 	if len(c.Services.Etcd.ExternalURLs) > 0 {
 		log.Infof(ctx, "[etcd] External etcd connection string has been specified, skipping etcd plane")
 	} else {
-		etcdRollingSnapshot := services.EtcdSnapshot{
-			Snapshot:  c.Services.Etcd.Snapshot,
-			Creation:  c.Services.Etcd.Creation,
-			Retention: c.Services.Etcd.Retention,
-		}
-		if err := services.RunEtcdPlane(ctx, c.EtcdHosts, etcdNodePlanMap, c.LocalConnDialerFactory, c.PrivateRegistriesMap, c.UpdateWorkersOnly, c.SystemImages.Alpine, etcdRollingSnapshot); err != nil {
+		if err := services.RunEtcdPlane(ctx, c.EtcdHosts, etcdNodePlanMap, c.LocalConnDialerFactory, c.PrivateRegistriesMap, c.UpdateWorkersOnly, c.SystemImages.Alpine, c.Services.Etcd); err != nil {
 			return fmt.Errorf("[etcd] Failed to bring up Etcd Plane: %v", err)
 		}
 	}
@@ -149,15 +147,18 @@ func ParseConfig(clusterFile string) (*v3.RancherKubernetesEngineConfig, error) 
 func InitClusterObject(ctx context.Context, rkeConfig *v3.RancherKubernetesEngineConfig, flags ExternalFlags) (*Cluster, error) {
 	// basic cluster object from rkeConfig
 	c := &Cluster{
+		AuthnStrategies:               make(map[string]bool),
 		RancherKubernetesEngineConfig: *rkeConfig,
 		ConfigPath:                    flags.ClusterFilePath,
 		ConfigDir:                     flags.ConfigDir,
+		DinD:                          flags.DinD,
 		StateFilePath:                 GetStateFilePath(flags.ClusterFilePath, flags.ConfigDir),
 		PrivateRegistriesMap:          make(map[string]v3.PrivateRegistry),
 	}
 	if len(c.ConfigPath) == 0 {
 		c.ConfigPath = pki.ClusterConfig
 	}
+
 	// set kube_config and state file
 	c.LocalKubeConfigPath = pki.GetLocalKubeConfig(c.ConfigPath, c.ConfigDir)
 	c.StateFilePath = GetStateFilePath(c.ConfigPath, c.ConfigDir)
@@ -166,6 +167,7 @@ func InitClusterObject(ctx context.Context, rkeConfig *v3.RancherKubernetesEngin
 	c.setClusterDefaults(ctx)
 	// extract cluster network configuration
 	c.setNetworkOptions()
+
 	// Register cloud provider
 	if err := c.setCloudProvider(); err != nil {
 		return nil, fmt.Errorf("Failed to register cloud provider: %v", err)

@@ -39,14 +39,23 @@ func (c *Cluster) ValidateCluster() error {
 }
 
 func validateAuthOptions(c *Cluster) error {
-	if c.Authentication.Strategy != DefaultAuthStrategy {
-		return fmt.Errorf("Authentication strategy [%s] is not supported", c.Authentication.Strategy)
+	for strategy, enabled := range c.AuthnStrategies {
+		if !enabled {
+			continue
+		}
+		strategy = strings.ToLower(strategy)
+		if strategy != AuthnX509Provider && strategy != AuthnWebhookProvider {
+			return fmt.Errorf("Authentication strategy [%s] is not supported", strategy)
+		}
+	}
+	if !c.AuthnStrategies[AuthnX509Provider] {
+		return fmt.Errorf("Authentication strategy must contain [%s]", AuthnX509Provider)
 	}
 	return nil
 }
 
 func validateNetworkOptions(c *Cluster) error {
-	if c.Network.Plugin != FlannelNetworkPlugin && c.Network.Plugin != CalicoNetworkPlugin && c.Network.Plugin != CanalNetworkPlugin && c.Network.Plugin != WeaveNetworkPlugin {
+	if c.Network.Plugin != NoNetworkPlugin && c.Network.Plugin != FlannelNetworkPlugin && c.Network.Plugin != CalicoNetworkPlugin && c.Network.Plugin != CanalNetworkPlugin && c.Network.Plugin != WeaveNetworkPlugin {
 		return fmt.Errorf("Network plugin [%s] is not supported", c.Network.Plugin)
 	}
 	return nil
@@ -108,6 +117,27 @@ func validateServicesOptions(c *Cluster) error {
 		}
 		if len(c.Services.Etcd.Path) == 0 {
 			return fmt.Errorf("External etcd path can't be empty")
+		}
+	}
+
+	// validate etcd s3 backup backend configurations
+	if err := validateEtcdBackupOptions(c); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func validateEtcdBackupOptions(c *Cluster) error {
+	if c.Services.Etcd.BackupConfig != nil {
+		if c.Services.Etcd.BackupConfig.S3BackupConfig == nil {
+			return fmt.Errorf("etcd backup is enabled but no s3 backend is specified")
+		}
+		if len(c.Services.Etcd.BackupConfig.S3BackupConfig.Endpoint) == 0 {
+			return fmt.Errorf("etcd s3 backup backend endpoint can't be empty")
+		}
+		if len(c.Services.Etcd.BackupConfig.S3BackupConfig.BucketName) == 0 {
+			return fmt.Errorf("etcd s3 backup backend bucketName can't be empty")
 		}
 	}
 	return nil

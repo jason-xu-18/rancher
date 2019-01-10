@@ -111,6 +111,7 @@ func newAuthed(tokenAPI http.Handler, managementAPI http.Handler, k8sproxy http.
 	authed.Path("/meta/gkeZones").Handler(capabilities.NewGKEZonesHandler())
 	authed.Path("/meta/aksVersions").Handler(capabilities.NewAKSVersionsHandler())
 	authed.Path("/meta/aksVirtualNetworks").Handler(capabilities.NewAKSVirtualNetworksHandler())
+	authed.Path("/meta/okeVirtualNetworks").Handler(capabilities.NewOKEVirtualNetworksHandler())
 	authed.PathPrefix("/meta/proxy").Handler(newProxy())
 	authed.PathPrefix("/meta").Handler(managementAPI)
 	authed.PathPrefix("/v3/identit").Handler(tokenAPI)

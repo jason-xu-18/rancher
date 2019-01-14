@@ -43,7 +43,7 @@ type compartment struct {
 	VCNS []vcn  `json:"vcns"`
 }
 
-type virtualNetworksResponseBody struct {
+type okeVirtualNetworksResponseBody struct {
 	Compartments []compartment `json:"compartments"`
 }
 
@@ -82,8 +82,9 @@ func (g *okeVirtualNetworksHandler) ServeHTTP(writer http.ResponseWriter, req *h
 		return
 	}
 
-	var networks []virtualNetworksResponseBody
+	var networks []okeVirtualNetworksResponseBody
 	var compartments []compartment
+	ctx := context.Background()
 
 	getRootCompartmentRequest := identity.GetCompartmentRequest{
 		CompartmentId: &tenancyID,
@@ -163,7 +164,7 @@ func (g *okeVirtualNetworksHandler) ServeHTTP(writer http.ResponseWriter, req *h
 			}
 
 			for _, subnetItem := range subnetResponse.Items {
-				compartments[compartmentKey].VCNS[vcnKey].Subnets = append(compartments[compartmentKey].VCNS[vcnKey].Subnets, subnet{
+				compartments[compartmentKey].VCNS[vcnKey].Subnets = append(compartments[compartmentKey].VCNS[vcnKey].Subnets, okeSubnet{
 					ID:   *subnetItem.Id,
 					Name: *subnetItem.DisplayName,
 				})
@@ -185,7 +186,7 @@ func (g *okeVirtualNetworksHandler) ServeHTTP(writer http.ResponseWriter, req *h
 	writer.Write(serialized)
 }
 
-func validateOKEVirtualNetworksRequestBody(body *virtualNetworksRequestBody) error {
+func validateOKEVirtualNetworksRequestBody(body *okeVirtualNetworksResponseBody) error {
 	if body.TenancyID == "" {
 		return fmt.Errorf("invalid TenancyID")
 	}

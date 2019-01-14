@@ -83,7 +83,7 @@ func (g *okeVirtualNetworksHandler) ServeHTTP(writer http.ResponseWriter, req *h
 		return
 	}
 
-	var networks []okeVirtualNetworksResponseBody
+	var networks okeVirtualNetworksResponseBody
 	var compartments []compartment
 	ctx := context.Background()
 
@@ -204,7 +204,7 @@ func validateOKEVirtualNetworksRequestBody(body *okeVirtualNetworksRequestBody) 
 		return fmt.Errorf("invalid ApiKey")
 	}
 
-	if body.fingerPrint == "" {
+	if body.FingerPrint == "" {
 		return fmt.Errorf("invalid fingerPrint")
 	}
 

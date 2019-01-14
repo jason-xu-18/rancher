@@ -10,14 +10,14 @@ import (
 	"github.com/oracle/oci-go-sdk/identity"
 )
 
-func NewOKEVirtualNetworksHandler() *OKEVirtualNetworksHandler {
-	return &OKEVirtualNetworksHandler{}
+func NewOKEVirtualNetworksHandler() *okeVirtualNetworksHandler {
+	return &okeVirtualNetworksHandler{}
 }
 
-type OKEVirtualNetworksHandler struct {
+type okeVirtualNetworksHandler struct {
 }
 
-type virtualNetworksRequestBody struct {
+type okeVirtualNetworksRequestBody struct {
 	// credentials
 	TenancyID   string `json:"tenancyID"`
 	UserID      string `json:"userID"`
@@ -26,15 +26,15 @@ type virtualNetworksRequestBody struct {
 	FingerPrint string `json:"fingerPrint"`
 }
 
-type subnet struct {
+type okeSubnet struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 }
 
 type vcn struct {
-	ID      string   `json:"id"`
-	Name    string   `json:"name"`
-	Subnets []subnet `json:"subnets"`
+	ID      string      `json:"id"`
+	Name    string      `json:"name"`
+	Subnets []okeSubnet `json:"subnets"`
 }
 
 type compartment struct {
@@ -47,7 +47,7 @@ type virtualNetworksResponseBody struct {
 	Compartments []compartment `json:"compartments"`
 }
 
-func (g *OKEVirtualNetworksHandler) ServeHTTP(writer http.ResponseWriter, req *http.Request) {
+func (g *okeVirtualNetworksHandler) ServeHTTP(writer http.ResponseWriter, req *http.Request) {
 	if req.Method != http.MethodPost {
 		writer.WriteHeader(http.StatusMethodNotAllowed)
 		return
@@ -55,13 +55,13 @@ func (g *OKEVirtualNetworksHandler) ServeHTTP(writer http.ResponseWriter, req *h
 
 	writer.Header().Set("Content-Type", "application/json")
 
-	var body virtualNetworksRequestBody
+	var body okeVirtualNetworksRequestBody
 	if err := extractRequestBody(writer, req, &body); err != nil {
 		handleErr(writer, err)
 		return
 	}
 
-	if err := validateVirtualNetworksRequestBody(&body); err != nil {
+	if err := validateOKEVirtualNetworksRequestBody(&body); err != nil {
 		writer.WriteHeader(http.StatusBadRequest)
 		handleErr(writer, err)
 		return
@@ -185,7 +185,7 @@ func (g *OKEVirtualNetworksHandler) ServeHTTP(writer http.ResponseWriter, req *h
 	writer.Write(serialized)
 }
 
-func validateVirtualNetworksRequestBody(body *virtualNetworksRequestBody) error {
+func validateOKEVirtualNetworksRequestBody(body *virtualNetworksRequestBody) error {
 	if body.TenancyID == "" {
 		return fmt.Errorf("invalid TenancyID")
 	}

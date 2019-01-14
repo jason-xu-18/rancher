@@ -1,6 +1,7 @@
 package capabilities
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -174,7 +175,7 @@ func (g *okeVirtualNetworksHandler) ServeHTTP(writer http.ResponseWriter, req *h
 
 	}
 
-	networks = append(networks, compartments...)
+	networks.Compartments = append(networks.Compartments, compartments...)
 
 	serialized, err := json.Marshal(networks)
 	if err != nil {
@@ -186,7 +187,7 @@ func (g *okeVirtualNetworksHandler) ServeHTTP(writer http.ResponseWriter, req *h
 	writer.Write(serialized)
 }
 
-func validateOKEVirtualNetworksRequestBody(body *okeVirtualNetworksResponseBody) error {
+func validateOKEVirtualNetworksRequestBody(body *okeVirtualNetworksRequestBody) error {
 	if body.TenancyID == "" {
 		return fmt.Errorf("invalid TenancyID")
 	}

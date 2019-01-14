@@ -11,11 +11,11 @@ import (
 	"github.com/oracle/oci-go-sdk/identity"
 )
 
-func NewOKEVirtualNetworksHandler() *okeVirtualNetworksHandler {
-	return &okeVirtualNetworksHandler{}
+func NewOKEVirtualNetworksHandler() *OKEVirtualNetworksHandler {
+	return &OKEVirtualNetworksHandler{}
 }
 
-type okeVirtualNetworksHandler struct {
+type OKEVirtualNetworksHandler struct {
 }
 
 type okeVirtualNetworksRequestBody struct {
@@ -23,7 +23,7 @@ type okeVirtualNetworksRequestBody struct {
 	TenancyID   string `json:"tenancyID"`
 	UserID      string `json:"userID"`
 	Region      string `json:"region"`
-	ApiKey      string `json:"apiKey"`
+	APIKey      string `json:"apiKey"`
 	FingerPrint string `json:"fingerPrint"`
 }
 
@@ -48,7 +48,7 @@ type okeVirtualNetworksResponseBody struct {
 	Compartments []compartment `json:"compartments"`
 }
 
-func (g *okeVirtualNetworksHandler) ServeHTTP(writer http.ResponseWriter, req *http.Request) {
+func (g *OKEVirtualNetworksHandler) ServeHTTP(writer http.ResponseWriter, req *http.Request) {
 	if req.Method != http.MethodPost {
 		writer.WriteHeader(http.StatusMethodNotAllowed)
 		return
@@ -71,7 +71,7 @@ func (g *okeVirtualNetworksHandler) ServeHTTP(writer http.ResponseWriter, req *h
 	tenancyID := body.TenancyID
 	userID := body.UserID
 	region := body.Region
-	apiKey := body.ApiKey
+	apiKey := body.APIKey
 	fingerPrint := body.FingerPrint
 
 	provider := common.NewRawConfigurationProvider(tenancyID, userID, region, apiKey, fingerPrint, nil)
@@ -200,8 +200,8 @@ func validateOKEVirtualNetworksRequestBody(body *okeVirtualNetworksRequestBody) 
 		return fmt.Errorf("invalid Region")
 	}
 
-	if body.ApiKey == "" {
-		return fmt.Errorf("invalid ApiKey")
+	if body.APIKey == "" {
+		return fmt.Errorf("invalid APIKey")
 	}
 
 	if body.FingerPrint == "" {
